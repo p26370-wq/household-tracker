@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CommonCents — Rent and Expenses Bill Splitter</title>
+<style>
+:root{--bg:#fff;--card:#f5f8f6;--tx:#000;--h:#0b5d3b;--bd:#d6ded9;--g:#1a8f4c;--r:#c62828;--bt:#0b5d3b;--bx:#fff}
+[data-theme=dark]{--bg:#121513;--card:#1c211e;--tx:#f2f2f2;--h:#6fdca5;--bd:#34413a;--bt:#2e9e68;--bx:#fff}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--tx);display:flex;min-height:100vh}
+h1,h2,h3{color:var(--h);margin:.2em 0}h1{font-size:1.6rem}
+.side{width:220px;background:var(--card);border-right:1px solid var(--bd);padding:14px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px;flex-shrink:0}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--h);font-size:1.15rem;margin-bottom:10px}
+.side a{padding:9px 10px;border-radius:8px;color:var(--tx);text-decoration:none;cursor:pointer;white-space:nowrap}
+.side a.on{background:var(--bt);color:var(--bx)}
+main{flex:1;padding:20px;min-width:0;max-width:1100px}
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:12px 0}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+.card small{display:block;opacity:.75}.card b{font-size:1.4rem;color:var(--h)}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{padding:8px;border-bottom:1px solid var(--bd);text-align:left;white-space:nowrap}th{color:var(--h)}
+.pill{padding:2px 10px;border-radius:99px;color:#fff;font-size:.85rem}.ok{background:var(--g)}.bad{background:var(--r)}
+.btn{background:var(--bt);color:var(--bx);border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font:inherit}.btn.alt{background:transparent;color:var(--tx);border:1px solid var(--bd)}.btn.sm{padding:3px 9px;font-size:.85rem}.btn.del{background:var(--r)}
+input,select,textarea{font:inherit;padding:7px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);width:100%}
+label{display:block;margin:8px 0;font-weight:500}.ck{display:flex;align-items:center;gap:8px;margin:0;font-weight:400}.ck input{width:auto}
+.rr{display:flex;gap:10px;align-items:center;margin:4px 0}.rr .fx{width:110px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row>*{width:auto}
+.bar{background:var(--bd);border-radius:6px;height:14px;margin:3px 0 8px}.bar i{display:block;height:100%;background:var(--bt);border-radius:6px}
+.warn{background:#fff3cd;color:#664d03;padding:10px;border-radius:8px;margin:8px 0}.err{color:var(--r);min-height:1.2em}
+dialog{border:1px solid var(--bd);border-radius:12px;background:var(--bg);color:var(--tx);width:min(480px,94vw);max-height:92vh}
+#toast{position:fixed;bottom:16px;right:16px;background:var(--bt);color:#fff;padding:10px 16px;border-radius:8px;display:none;z-index:9}
+@media(max-width:800px){body{flex-direction:column}.side{width:auto;height:auto;flex-direction:row;overflow-x:auto;position:static}.logo{margin:0 10px 0 0}main{padding:12px}}
+</style></head><body>
+<nav class="side" id="nav"></nav><main id="main"></main><dialog id="dlg"></dialog><div id="toast"></div>
+<script>
+const K='cc_v1',$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sum=a=>a.reduce((s,x)=>s+x,0),d2=c=>(c/100).toFixed(2);
+const toC=s=>{s=String(s??'').trim();if(!/^\d+(\.\d{1,2})?$/.test(s))return null;const[a,b='']=s.split('.');return +a*100+ +(b+'00').slice(0,2)};
+const validD=d=>/^\d{4}-\d\d-\d\d$/.test(d||'')&&!isNaN(new Date(d));
+const splitEq=(a,ids)=>{const n=ids.length,b=Math.floor(a/n),r=a-b*n,o={};ids.forEach((id,i)=>o[id]=b+(i<r?1:0));return o};
+let S,page='dashboard',cur=new Date().toISOString().slice(0,7);
+const F={bill:{},expense:{},all:{}};
+const money=c=>new Intl.NumberFormat('en-US',{style:'currency',currency:S.set.cur}).format(c/100);
+const fd=d=>{const[y,m,x]=d.split('-');return S.set.df==='DMY'?`${x}/${m}/${y}`:S.set.df==='ISO'?d:`${m}/${x}/${y}`};
+const MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+function demo(){const a=uid(),b=uid(),c=uid(),y=cur,p=(()=>{let[Y,M]=cur.split('-').map(Number);M--;if(!M){M=12;Y--}return Y+'-'+String(M).padStart(2,'0')})();
+const it=(kind,name,vendor,cat,amt,date,payer,method,split)=>({id:uid(),kind,name,vendor,cat,amt,date,payer,notes:'',method,split});
+return{set:{hh:'Maple Street Apartment',cur:'USD',method:'equal',df:'MDY',theme:'light',notif:false},
+rm:[{id:a,name:'Roommate A',rent:90000,notes:'Master bedroom'},{id:b,name:'Roommate B',rent:80000,notes:''},{id:c,name:'Roommate C',rent:70000,notes:'Smallest room'}],
+cats:['Electricity','Water','Internet','Insurance','Groceries','Other','Online Shopping','Dining Out','Takeout'],rent:{},
+items:[it('bill','Electric bill','City Power','Electricity',15000,y+'-05',a,'equal',splitEq(15000,[a,b,c])),
+it('bill','Water bill','City Water','Water',6000,y+'-06',b,'equal',splitEq(6000,[a,b,c])),
+it('bill','Internet','FiberNet','Internet',7000,y+'-07',a,'selected',splitEq(7000,[a,b])),
+it('bill','Renters insurance','SafeHome','Insurance',4500,y+'-08',c,'equal',splitEq(4500,[a,b,c])),
+it('bill','Weekly groceries','Market','Groceries',12000,y+'-09',b,'fixed',{[a]:5000,[b]:4000,[c]:3000}),
+it('expense','Team dinner','Pasta Place','Dining Out',9000,y+'-10',a,'equal',splitEq(9000,[a,b,c])),
+it('bill','Electric bill','City Power','Electricity',14000,p+'-05',a,'equal',splitEq(14000,[a,b,c]))],
+pay:[{id:uid(),rm:a,amt:100000,date:y+'-02',month:y,note:'Rent + part of bills'},{id:uid(),rm:b,amt:50000,date:y+'-03',month:y,note:''}].map(x=>({...x,date:x.date+'-01'}))}}
+function load(){try{S=JSON.parse(localStorage.getItem(K))}catch(e){}if(!S||!S.rm){S=demo();save()}}
+const save=()=>localStorage.setItem(K,JSON.stringify(S));
+function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',2500)}
+const act=()=>S.rm.filter(r=>!r.arch),nm=id=>(S.rm.find(r=>r.id===id)||{name:'(removed)'}).name;
+const items=ym=>S.items.filter(i=>i.date.slice(0,7)===ym);
+const rentOf=ym=>S.rent[ym]||{property:S.set.prop||'Our Apartment',total:sum(act().map(r=>r.rent)),shares:Object.fromEntries(act().map(r=>[r.id,r.rent])),notes:''};
+function bal(ym){const R=rentOf(ym),I=items(ym),P=S.pay.filter(p=>p.month===ym);
+return S.rm.map(r=>{const rent=R.shares[r.id]||0;let bills=0,exp=0;I.forEach(i=>{const v=i.split[r.id]||0;i.kind==='bill'?bills+=v:exp+=v});
+const owed=rent+bills+exp,paid=sum(P.filter(p=>p.rm===r.id).map(p=>p.amt));return{r,rent,bills,exp,owed,paid,out:owed-paid}}).filter(b=>!b.r.arch||b.owed||b.paid)}
+const pill=b=>`<span class="pill ${b.out<=0?'ok':'bad'}">${b.out<=0?'Paid':b.paid?'Partly paid':'Unpaid'}</span>`;
+const tbl=(h,rows)=>`<div class=tw><table><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr>${rows.map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')||`<tr><td colspan=${h.length}>Nothing here yet.</td></tr>`}</table></div>`;
+const bars=o=>{const m=Math.max(1,...Object.values(o));return Object.entries(o).filter(e=>e[1]).map(([k,v])=>`<div>${esc(k)} — <b>${money(v)}</b><div class=bar><i style="width:${v/m*100}%"></i></div></div>`).join('')||'<p>No data.</p>'};
+const card=(l,v)=>`<div class=card><small>${l}</small><b>${v}</b></div>`;
+const btn=(a,t,id='',c='')=>`<button class="btn sm ${c}" data-a="${a}" data-id="${id}">${t}</button>`;
+function catTotals(ym){const R=rentOf(ym),o={Rent:sum(Object.values(R.shares))};items(ym).forEach(i=>o[i.cat]=(o[i.cat]||0)+i.amt);return o}
+function rentWarn(ym){const R=rentOf(ym),s=sum(Object.values(R.shares));return s!==R.total?`<div class=warn>⚠ Rent shares add up to ${money(s)} but total rent is ${money(R.total)} (difference ${money(Math.abs(s-R.total))}). Fix it on the Rent page.</div>`:''}
+const P={
+dashboard(){const R=rentOf(cur),I=items(cur),B=bal(cur),rent=sum(Object.values(R.shares)),bl=sum(I.filter(i=>i.kind=='bill').map(i=>i.amt)),ot=sum(I.filter(i=>i.kind=='expense').map(i=>i.amt)),pays=S.pay.filter(p=>p.month===cur);
+return rentWarn(cur)+`<div class=grid>${card('Total expenses',money(rent+bl+ot))+card('Total rent',money(R.total))+card('Utilities & shared bills',money(bl))+card('Other shared expenses',money(ot))+card('Still owed (all)',money(sum(B.map(b=>Math.max(0,b.out)))))}</div>
+<div class=card><h3>Payment status</h3>${tbl(['Roommate','Owed','Paid','Remaining','Status'],B.map(b=>[esc(b.r.name),money(b.owed),money(b.paid),money(Math.max(0,b.out)),pill(b)]))}<p>${btn('addPay','Record payment')}</p></div>
+<div class=card><h3>Breakdown by category</h3>${bars(catTotals(cur))}</div>
+<div class=card><h3>Payments this month</h3>${tbl(['Date','Roommate','Amount','Note',''],pays.map(p=>[fd(p.date),esc(nm(p.rm)),money(p.amt),esc(p.note),btn('delPay','Delete',p.id,'del')]))}</div>`},
+roommates(){return `<p>${btn('addRm','+ Add roommate')}</p><div class=card>${tbl(['Name','Default rent','Notes',''],act().map(r=>[esc(r.name),money(r.rent),esc(r.notes),btn('editRm','Edit',r.id,'alt')+' '+btn('delRm','Remove',r.id,'del')]))}</div><p>Changing a roommate's default rent only affects months you haven't saved on the Rent page. Roommates with history are archived, not erased.</p>`},
+rent(){const R=rentOf(cur);return `<form id=rf class=card><label>Property / apartment name<input name=prop value="${esc(R.property)}"></label><label>Total rent for ${MN[+cur.slice(5)-1]} ${cur.slice(0,4)}<input name=total value="${d2(R.total)}"></label>
+${tbl(['Roommate','Monthly rent'],act().map(r=>[esc(r.name),`<input name="s_${r.id}" value="${d2(R.shares[r.id]??0)}">`]))}<div id=rw></div><label>Notes<textarea name=notes>${esc(R.notes)}</textarea></label><div class=row><button class=btn>Save rent for this month</button><button type=button class="btn alt" data-a=matchRent>Set total = sum of shares</button></div><p class=err id=rerr></p></form>`},
+bills(){return list('bill','Utilities & Shared Bills','addBill')},
+expenses(){return list('expense','Other Shared Expenses','addExp')},
+summary(){const R=rentOf(cur),I=items(cur),B=bal(cur),ct=catTotals(cur),cats=Object.keys(ct),bl=sum(I.filter(i=>i.kind=='bill').map(i=>i.amt)),ot=sum(I.filter(i=>i.kind=='expense').map(i=>i.amt));
+const cell=(c,r)=>c=='Rent'?(R.shares[r.id]||0):sum(I.filter(i=>i.cat===c).map(i=>i.split[r.id]||0));
+return rentWarn(cur)+`<div class=grid>${card('Total rent',money(R.total))+card('Utilities & bills',money(bl))+card('Other expenses',money(ot))}</div>
+<div class=card><h3>Each roommate</h3>${tbl(['Roommate','Rent','Bills','Other','Total share','Paid','Remaining'],B.map(b=>[esc(b.r.name),money(b.rent),money(b.bills),money(b.exp),money(b.owed),money(b.paid),money(Math.max(0,b.out))]))}</div>
+<div class=card><h3>Category × roommate</h3>${tbl(['Category',...B.map(b=>esc(b.r.name)),'Total'],cats.map(c=>[c,...B.map(b=>money(cell(c,b.r))),money(ct[c])]))}</div><div class=card><h3>Chart</h3>${bars(ct)}</div>`},
+history(){return list('all','Expense History')},
+settings(){const s=S.set,o=(v,l,c)=>`<option value="${v}" ${c==v?'selected':''}>${l}</option>`;
+return `<div class=card><label>Household name<input value="${esc(s.hh)}" onchange="setS('hh',this.value)"></label>
+<label>Currency<select onchange="setS('cur',this.value)">${['USD','EUR','GBP','CAD'].map(x=>o(x,x,s.cur)).join('')}</select></label>
+<label>Default bill allocation<select onchange="setS('method',this.value)">${o('equal','Equal split (all)',s.method)+o('selected','Selected roommates only',s.method)+o('fixed','Unequal fixed amounts',s.method)}</select></label>
+<label>Date format<select onchange="setS('df',this.value)">${o('MDY','MM/DD/YYYY',s.df)+o('DMY','DD/MM/YYYY',s.df)+o('ISO','YYYY-MM-DD',s.df)}</select></label>
+<label>Theme<select onchange="setS('theme',this.value)">${o('light','Light',s.theme)+o('dark','Dark',s.theme)}</select></label>
+<label class=ck><input type=checkbox ${s.notif?'checked':''} onchange="setS('notif',this.checked)"> Remind me about unpaid balances (saved only — reminders need a backend)</label>
+<p>Roommates: <b>${act().length}</b> ${btn('addRm','Add roommate')}</p>
+<label>New category<span class=row><input id=nc placeholder="e.g. Cleaning"><button class=btn data-a=addCat>Add</button></span></label><p>Categories: ${S.cats.map(esc).join(', ')}</p></div>
+<div class=card><h3>Your data</h3><p>Stored <b>only in this browser</b> (localStorage). Export a backup regularly; clearing browser data erases it.</p><div class=row>${btn('export','Export backup (JSON)')}<label class="btn sm alt" style="margin:0">Import backup<input type=file accept=.json id=imp hidden></label>${btn('demo','Reset to demo data','','alt')}${btn('clear','Clear all data','','del')}${btn('test','Run self-test','','alt')}</div></div>
+<div class=card><h3>How it works</h3><p>All money is stored as whole cents. A roommate's <b>share</b> = rent share + their part of each bill/expense in the month. <b>Remaining</b> = share − payments recorded for that month. Equal splits give leftover cents to the first roommates, so parts always add up exactly. "Who paid" is informational; record each roommate's payment to settle.</p></div>`}};
+const T={dashboard:'Dashboard',roommates:'Roommates',rent:'Rent',bills:'Utilities & Shared Bills',expenses:'Other Shared Expenses',summary:'Monthly Summary',history:'Expense History',settings:'Settings'};
+const settled=i=>{const B=bal(i.date.slice(0,7));return Object.keys(i.split).every(id=>{const b=B.find(x=>x.r.id===id);return !b||b.out<=0})};
+function rowsFor(k){const f=F[k],q=(f.q||'').toLowerCase();return S.items.filter(i=>(k=='all'||i.kind===k&&i.date.slice(0,7)===cur)&&(!q||(i.name+' '+i.vendor).toLowerCase().includes(q))&&(!f.cat||i.cat===f.cat)&&(!f.rm||i.split[f.rm]!==undefined||i.payer===f.rm)&&(!f.from||i.date>=f.from)&&(!f.to||i.date<=f.to)).sort((a,b)=>b.date.localeCompare(a.date))}
+function listTbl(k){return tbl(['Date','Name','Category','Total','Paid by','Split','Status',''],rowsFor(k).map(i=>[fd(i.date),esc(i.name+(i.vendor?' · '+i.vendor:'')),esc(i.cat),money(i.amt),esc(nm(i.payer)),{equal:'Equal',selected:'Selected',fixed:'Fixed'}[i.method],`<span class="pill ${settled(i)?'ok':'bad'}">${settled(i)?'Settled':'Unpaid'}</span>`,btn('editItem','Edit',i.id,'alt')+' '+btn('delItem','Delete',i.id,'del')]))}
+function list(k,t,add){const f=F[k];return `<div class=card><div class=row>${add?btn(add,'+ Add','',''):''}<input placeholder="Search by name" value="${esc(f.q)}" oninput="fl('${k}','q',this.value)"><select onchange="fl('${k}','cat',this.value)"><option value="">All categories</option>${S.cats.map(c=>`<option ${f.cat==c?'selected':''}>${esc(c)}</option>`).join('')}</select><select onchange="fl('${k}','rm',this.value)"><option value="">All roommates</option>${S.rm.map(r=>`<option value="${r.id}" ${f.rm==r.id?'selected':''}>${esc(r.name)}</option>`).join('')}</select>
+${k=='all'?`<input type=date value="${f.from||''}" onchange="fl('all','from',this.value)"><input type=date value="${f.to||''}" onchange="fl('all','to',this.value)">`:''}</div></div><div class=card id=lt>${listTbl(k)}</div>`}
+function fl(k,key,v){F[k][key]=v;$('#lt').innerHTML=listTbl(k)}
+function setS(k,v){S.set[k]=v;save();render()}
+function render(){document.documentElement.dataset.theme=S.set.theme;
+$('#nav').innerHTML=`<div class=logo><svg width=30 height=30 viewBox="0 0 30 30"><circle cx=15 cy=15 r=14 fill="#0b5d3b"/><text x=15 y=21 font-size=17 font-weight=700 fill=#fff text-anchor=middle>¢</text></svg>CommonCents</div>`+Object.keys(T).map(p=>`<a class="${p==page?'on':''}" data-p=${p}>${T[p]}</a>`).join('');
+const Y=+cur.slice(0,4),mo=+cur.slice(5);const ms=['dashboard','rent','bills','expenses','summary'].includes(page);
+$('#main').innerHTML=`<div class=top><div><h1>${T[page]}</h1><small>${esc(S.set.hh)} · Rent and Expenses Bill Splitter</small></div>${ms?`<div class=row><select id=mm>${MN.map((m,i)=>`<option value=${i+1} ${i+1==mo?'selected':''}>${m}</option>`).join('')}</select><select id=yy>${[-3,-2,-1,0,1,2].map(d=>`<option ${d==0?'selected':''}>${Y+d}</option>`).join('')}</select></div>`:''}</div>`+P[page]();
+if(ms){const ch=()=>{cur=$('#yy').value+'-'+String($('#mm').value).padStart(2,'0');render()};$('#mm').onchange=$('#yy').onchange=ch}
+if(page=='rent'){rentChk();$('#rf').oninput=rentChk;$('#rf').onsubmit=saveRent}
+if(page=='settings')$('#imp').onchange=importData}
+function rentChk(){const f=new FormData($('#rf')),tot=toC(f.get('total'));let s=0,bad=false;act().forEach(r=>{const v=toC(f.get('s_'+r.id));v===null?bad=true:s+=v});
+$('#rw').innerHTML=bad||tot===null?'<div class=warn>⚠ Please enter valid amounts (like 900.00).</div>':`<p><b>Total of shares: ${money(s)}</b></p>`+(s!==tot?`<div class=warn>⚠ Shares add up to ${money(s)} but total rent is ${money(tot)}.</div>`:'<p style="color:var(--g)">✔ Shares match total rent.</p>')}
+function saveRent(e){e.preventDefault();const f=new FormData(e.target),tot=toC(f.get('total')),sh={};
+for(const r of act()){const v=toC(f.get('s_'+r.id));if(v===null)return $('#rerr').textContent='Check the rent amount for '+r.name;sh[r.id]=v}
+if(tot===null)return $('#rerr').textContent='Enter a valid total rent.';
+S.set.prop=f.get('prop');S.rent[cur]={property:f.get('prop'),total:tot,shares:sh,notes:f.get('notes')};save();render();toast('Rent saved')}
+function openForm(title,body,fn,after){const d=$('#dlg');d.innerHTML=`<form id=f><h2>${title}</h2>${body}<p class=err id=err></p><div class=row><button class=btn id=sv>Save</button><button type=button class="btn alt" onclick="dlg.close()">Cancel</button></div></form>`;
+$('#f').onsubmit=e=>{e.preventDefault();const er=fn(new FormData(e.target));if(er){$('#err').textContent=er;return}$('#sv').disabled=true;save();d.close();render();toast('Saved ✔')};
+$('#f').onchange=sync;d.showModal();sync()}
+function sync(){const m=$('#f [name=method]');if(!m)return;$$('#f .fx').forEach(x=>x.style.display=m.value=='fixed'?'':'none');$$('#f [name=in]').forEach(c=>{if(m.value=='equal'){c.checked=true;c.disabled=true}else c.disabled=false})}
+const dayDef=()=>{const t=new Date().toISOString().slice(0,10);return t.slice(0,7)===cur?t:cur+'-01'};
+function rmForm(id){const r=S.rm.find(x=>x.id===id)||{};openForm(id?'Edit roommate':'Add roommate',`<label>Display name<input name=name value="${esc(r.name)}" required></label><label>Default rent<input name=rent value="${r.rent!=null?d2(r.rent):''}" placeholder="0.00"></label><label>Notes (optional)<textarea name=notes>${esc(r.notes)}</textarea></label>`,f=>{const n=f.get('name').trim(),v=toC(f.get('rent')||'0');if(!n)return'Please enter a name.';if(v===null)return'Enter a valid rent amount.';
+if(S.rm.some(x=>!x.arch&&x.id!==id&&x.name.toLowerCase()==n.toLowerCase()))return'A roommate with that name already exists.';
+if(id){Object.assign(r,{name:n,rent:v,notes:f.get('notes')})}else S.rm.push({id:uid(),name:n,rent:v,notes:f.get('notes')})})}
+function itemForm(kind,id){const it=S.items.find(i=>i.id===id)||{},A=act(),m=it.method||S.set.method;
+openForm((id?'Edit ':'Add ')+(kind=='bill'?'bill':'expense'),`<label>${kind=='bill'?'Bill name':'Expense name'}<input name=name value="${esc(it.name)}"></label>${kind=='bill'?`<label>Vendor / provider<input name=vendor value="${esc(it.vendor)}"></label>`:''}
+<label>Category<select name=cat>${S.cats.map(c=>`<option ${c===it.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
+<label>Total amount<input name=amt value="${it.amt!=null?d2(it.amt):''}" placeholder="0.00"></label><label>Date<input type=date name=date value="${it.date||dayDef()}"></label>
+<label>Paid by<select name=payer>${S.rm.filter(r=>!r.arch||r.id===it.payer).map(r=>`<option value=${r.id} ${r.id===it.payer?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label>
+<label>How to split<select name=method><option value=equal ${m=='equal'?'selected':''}>Equal split (everyone)</option><option value=selected ${m=='selected'?'selected':''}>Selected roommates only</option><option value=fixed ${m=='fixed'?'selected':''}>Unequal fixed amounts</option></select></label>
+<div>${A.map(r=>`<div class=rr><label class=ck style="flex:1"><input type=checkbox name=in value=${r.id} ${!it.split||r.id in it.split?'checked':''}>${esc(r.name)}</label><input class=fx name=fx_${r.id} placeholder="0.00" value="${it.split&&it.split[r.id]!=null?d2(it.split[r.id]):''}"></div>`).join('')}</div><label>Notes<textarea name=notes>${esc(it.notes)}</textarea></label>`,
+f=>{const name=f.get('name').trim(),amt=toC(f.get('amt')),date=f.get('date'),payer=f.get('payer'),method=f.get('method');
+if(!name)return'Please enter a name.';if(!amt||amt<=0)return'Enter a valid amount above 0 (like 125.50).';if(!validD(date))return'Enter a valid date.';
+const ids=method=='equal'?A.map(r=>r.id):f.getAll('in');if(!ids.length)return'Pick at least one roommate.';let split;
+if(method=='fixed'){split={};let t=0;for(const x of ids){const v=toC(f.get('fx_'+x)||'0');if(v===null)return'Check the amount for '+nm(x);split[x]=v;t+=v}if(t!==amt)return`Amounts add up to ${money(t)} but the total is ${money(amt)} (off by ${money(Math.abs(amt-t))}).`}else split=splitEq(amt,ids);
+if(!id&&S.items.some(i=>i.kind===kind&&i.name.toLowerCase()==name.toLowerCase()&&i.amt===amt&&i.date===date&&i.payer===payer))return'This looks like a duplicate (same name, amount, date and payer).';
+const o={id:id||uid(),kind,name,vendor:f.get('vendor')||'',cat:f.get('cat'),amt,date,payer,notes:f.get('notes'),method,split};
+if(id)S.items[S.items.findIndex(i=>i.id===id)]=o;else S.items.push(o)})}
+function payForm(){const B=bal(cur);openForm('Record payment',`<label>Roommate<select name=rm>${act().map(r=>`<option value=${r.id}>${esc(r.name)}</option>`).join('')}</select></label><label>Amount<input name=amt placeholder="0.00"></label><label>Date<input type=date name=date value="${dayDef()}"></label><label>Applies to month<input type=month name=month value="${cur}"></label><label>Note<input name=note></label>`,f=>{const a=toC(f.get('amt'));
+if(!a||a<=0)return'Enter a valid amount above 0.';if(!validD(f.get('date')))return'Enter a valid date.';if(!f.get('month'))return'Pick a month.';
+if(S.pay.some(p=>p.rm===f.get('rm')&&p.amt===a&&p.date===f.get('date')&&p.month===f.get('month')))return'This payment was already recorded.';
+S.pay.push({id:uid(),rm:f.get('rm'),amt:a,date:f.get('date'),month:f.get('month'),note:f.get('note')})})}
+function selfTest(){const r=[];const t=(n,c)=>r.push((c?'✔ ':'✘ ')+n);const e=splitEq(10000,['a','b','c']);
+t('Equal split of $100/3 sums to 10000',sum(Object.values(e))==10000);t('First roommate gets extra cent',e.a==3334&&e.b==3333);
+t('toC("12.5")=1250',toC('12.5')==1250);t('toC("abc") rejected',toC('abc')===null);t('toC("0.1")+toC("0.2")=30',toC('0.1')+toC('0.2')==30);
+t('Selected split of $70 between 2 = 3500 each',splitEq(7000,['a','b']).a==3500);alert(r.join('\n'))}
+function importData(e){const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.rm||!d.items||!d.pay||!d.set)throw 0;if(confirm('Replace current data with this backup?')){S=d;save();render();toast('Backup imported')}}catch(x){toast('That file is not a valid backup')}};rd.readAsText(f)}
+const A={addRm:()=>rmForm(),editRm:id=>rmForm(id),addBill:()=>itemForm('bill'),addExp:()=>itemForm('expense'),addPay:payForm,test:selfTest,
+delRm(id){if(!confirm('Remove this roommate?'))return;const used=S.items.some(i=>i.split[id]!==undefined||i.payer===id)||S.pay.some(p=>p.rm===id)||Object.values(S.rent).some(r=>r.shares[id]);
+if(used)S.rm.find(r=>r.id===id).arch=true;else S.rm=S.rm.filter(r=>r.id!==id);save();render();toast(used?'Archived (history kept)':'Removed')},
+editItem(id){itemForm(S.items.find(i=>i.id===id).kind,id)},
+delItem(id){if(confirm('Delete this entry?')){S.items=S.items.filter(i=>i.id!==id);save();render();toast('Deleted')}},
+delPay(id){if(confirm('Delete this payment?')){S.pay=S.pay.filter(p=>p.id!==id);save();render();toast('Deleted')}},
+matchRent(){const f=new FormData($('#rf'));let s=0;act().forEach(r=>s+=toC(f.get('s_'+r.id))||0);$('#rf [name=total]').value=d2(s);rentChk()},
+addCat(){const v=$('#nc').value.trim();if(!v)return toast('Enter a category name');if(S.cats.some(c=>c.toLowerCase()==v.toLowerCase()))return toast('Category already exists');S.cats.push(v);save();render();toast('Category added')},
+export(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='commoncents-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click()},
+demo(){if(confirm('Replace everything with demo data?')){S=demo();save();render();toast('Demo data loaded')}},
+clear(){if(confirm('Delete ALL data? This cannot be undone.')){S={set:{...S.set},rm:[],cats:S.cats,rent:{},items:[],pay:[]};save();render();toast('Data cleared')}}};
+document.addEventListener('click',e=>{const p=e.target.closest('[data-p]');if(p){page=p.dataset.p;render();return}const a=e.target.closest('[data-a]');if(a&&A[a.dataset.a]){e.preventDefault();A[a.dataset.a](a.dataset.id)}});
+load();render();
+</script></body></html>
